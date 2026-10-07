@@ -10,19 +10,30 @@ import (
 
 var consumers[] int
 
+type Queue struct {
+	occupancy int
+	ready chan struct {}
+}
+
+type Semaphore struct {
+	mu sync.Mutex
+	queue []*Queue
+	counter int
+	capacity int
+}
+
 type benchmark struct {
 	option string
 	bufsize int
 	countPerConsumer int
 	totalThroughput int
-	avgBufOccupancy int
+	avgBuffOccupancy int
 }
 
 func (bench *benchmark) printResults() {
 	fmt.Printf("--- Benchmark completed ---\nBuffer size: [%d]\nTotal throughput: [%d]\nItems consumed per consumer: [%d]\nAvg Buffer occupancy: [%d]",
 							bench.bufsize, bench.totalThroughput, bench.countPerConsumer,  bench.avgBufOccupancy)
 }
-
 
 func usage() {
 	fmt.Fprintf(os.Stderr, "usage: prodcon [benchmark] [K] [P] [C]\n")
@@ -31,7 +42,6 @@ func usage() {
 	flag.PrintDefaults()
 	os.Exit(2)
 }
-
 
 func main() {
 	flag.Usage = usage
@@ -48,42 +58,70 @@ func main() {
 	p, _ := strconv.Atoi(args[2])
 	c, _ := strconv.Atoi(args[3])
 
+	consumers = make([]int, c)
+	var prodWg sync.WaitGroup
+	var consWg sync.WaitGroup
+
 	if option == "channel" {
 		ch := make(chan string, bufsize)
-		consumers = make([]int, c)
-		var prodWg sync.WaitGroup
-		var consWg sync.WaitGroup
 
 		for i := range p {
 			prodWg.Add(1)
-			go chanProducer(i, ch, &prodWg)
+			go chanProducer(i, c, ch, &prodWg)
 		}
 
 		for i := range consumers {
 			consWg.Add(1)
 			consumers[i] = 0
-			go chanConsumer(i, ch , &consWg)
+			go chanConsumer(i, ch, &consWg)
 		}
 
 	}
 	if option == "semaphore" {
+		notEmpty := semaphore { sync.Mutex{}, }
+		notFull := semaphore { sync.Mutex{}, 0, c}
+
+		for i := range p {
+			prodWg.Add(1)
+			go semProducer(i, &prodWg)
+		}
+
+		for i := range consumers {
+			consWg.Add(1)
+			consumers[i] = 0
+			go semConsumer(i, &consWg)
+		}
+	}
+}
+
+func chanProducer(id, consumers int, ch chan<- string, wg *sync.WaitGroup) {
+  defer wg.Done()
+	for i := range consumers {
+      item := fmt.Sprintf("P%d-item%d", id, i)
+      fmt.Printf("[P%d] Produced: %s\n", id, item)
+      ch <- item
+  }
+}
+
+func chanConsumer(id int, ch <-chan string, wg *sync.WaitGroup) {
+  defer wg.Done()
+	for item := range ch {
+      fmt.Printf("[C%d] Consumed: %s\n", id, item)
+			consumers[id]++
+  }
+}
+
+func semProducer(id int, wg *sync.WaitGroup) {
+	defer wg.Done()
+	for {
 
 	}
 }
 
-func chanProducer(id int, ch chan<- string, wg *sync.WaitGroup) {
-    for i := 0; i < 3; i++ {
-        item := fmt.Sprintf("P%d-item%d", id, i)
-        fmt.Printf("[P%d] Produced: %s\n", id, item)
-        ch <- item
-    }
-    wg.Done()
-}
+func semConsumer(id int, wg *sync.WaitGroup) {
+	defer wg.Done()
 
-func chanConsumer(id int, ch <-chan string, wg *sync.WaitGroup) {
-    for item := range ch {
-        fmt.Printf("[C%d] Consumed: %s\n", id, item)
-				consumers[id]++
-    }
-    wg.Done()
+	for {
+
+	}
 }
